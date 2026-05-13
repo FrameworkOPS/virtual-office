@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, AgentState, AGENTS } from '@/lib/agents/config';
+import { AgentState, AGENTS } from '@/lib/agents/config';
 
 export interface Message {
   id: string;
