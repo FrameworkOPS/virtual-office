@@ -64,37 +64,44 @@ export default function AgentChat({ agent, onClose }: Props) {
         body: JSON.stringify({ agentId: agent.id, messages: apiMessages }),
       });
 
-      if (!response.ok) throw new Error('Stream failed');
+      if (!response.ok) {
+        const errBody = await response
+          .json()
+          .catch(() => ({ error: `Request failed (${response.status})` }));
+        updateLastMessage(
+          agent.id,
+          `⚠️ ${errBody.error ?? 'The agent could not respond.'}`,
+        );
+        return;
+      }
+
+      if (!response.body) {
+        updateLastMessage(agent.id, '⚠️ The server returned an empty stream.');
+        return;
+      }
 
       setAgentState(agent.id, 'talking');
 
-      const reader = response.body?.getReader();
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let accumulated = '';
 
-      while (reader) {
+      while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        accumulated += decoder.decode(value, { stream: true });
+        updateLastMessage(agent.id, accumulated);
+      }
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') break;
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.text) {
-                accumulated += parsed.text;
-                updateLastMessage(agent.id, accumulated);
-              }
-            } catch {}
-          }
-        }
+      accumulated += decoder.decode();
+      if (accumulated.length === 0) {
+        updateLastMessage(agent.id, '⚠️ The agent returned no content.');
+      } else {
+        updateLastMessage(agent.id, accumulated);
       }
     } catch (err) {
-      updateLastMessage(agent.id, 'Sorry, I ran into an issue. Please try again.');
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      updateLastMessage(agent.id, `⚠️ ${message}`);
     } finally {
       setIsStreaming(false);
       setAgentState(agent.id, 'idle');

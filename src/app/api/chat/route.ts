@@ -1,59 +1,62 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { anthropic } from '@ai-sdk/anthropic';
+import { streamText } from 'ai';
 import { getAgent } from '@/lib/agents/config';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+type IncomingMessage = { role: 'user' | 'assistant'; content: string };
 
 export async function POST(req: Request) {
-  const { agentId, messages } = await req.json();
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return Response.json(
+        {
+          error:
+            'ANTHROPIC_API_KEY is not set on the server. Add it to your environment (e.g. `.env.local`) and restart the dev server.',
+        },
+        { status: 500 },
+      );
+    }
 
-  const agent = getAgent(agentId);
-  if (!agent) {
-    return new Response('Agent not found', { status: 404 });
+    const body = (await req.json()) as {
+      agentId?: string;
+      messages?: IncomingMessage[];
+    };
+
+    const agent = body.agentId ? getAgent(body.agentId) : undefined;
+    if (!agent) {
+      return Response.json(
+        { error: `Unknown agent: ${body.agentId ?? '(missing)'}` },
+        { status: 404 },
+      );
+    }
+
+    const messages = (body.messages ?? [])
+      .filter((m) => typeof m?.content === 'string' && m.content.trim().length > 0)
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+    if (messages.length === 0) {
+      return Response.json({ error: 'No messages provided.' }, { status: 400 });
+    }
+
+    const result = streamText({
+      model: anthropic('claude-sonnet-4-6'),
+      system: agent.systemPrompt,
+      messages,
+      onError: ({ error }) => {
+        console.error('[api/chat] streamText error:', error);
+      },
+    });
+
+    return result.toTextStreamResponse();
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : 'Unknown server error';
+    console.error('[api/chat] route error:', err);
+    return Response.json({ error: message }, { status: 500 });
   }
-
-  const stream = anthropic.messages.stream({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    system: agent.systemPrompt,
-    messages: messages.map((m: { role: string; content: string }) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    })),
-  });
-
-  const encoder = new TextEncoder();
-
-  const readable = new ReadableStream({
-    async start(controller) {
-      try {
-        for await (const event of stream) {
-          if (
-            event.type === 'content_block_delta' &&
-            event.delta.type === 'text_delta'
-          ) {
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`)
-            );
-          }
-        }
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-      } catch (err) {
-        controller.error(err);
-      } finally {
-        controller.close();
-      }
-    },
-  });
-
-  return new Response(readable, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    },
-  });
 }

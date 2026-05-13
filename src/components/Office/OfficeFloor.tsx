@@ -1,348 +1,591 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { AGENTS, getAgent, Agent } from '@/lib/agents/config';
+import { AGENTS, getAgent, Agent, AgentState } from '@/lib/agents/config';
 import { useOfficeStore } from '@/lib/store/office';
 import HumanCharacter from '@/components/Agent/HumanCharacter';
 import AgentDesk from '@/components/Office/AgentDesk';
 import AgentChat from '@/components/Agent/AgentChat';
 
-// ─── Zone definitions ─────────────────────────────────────────────────────────
-interface ZoneDef {
-  agentId: string;
-  label: string;
-  icon: string;
-  decoration: 'whiteboard' | 'bookshelf' | 'plant-wall' | 'monitor-wall' | 'board' | 'corkboard';
-}
-
-const ZONES: ZoneDef[] = [
-  { agentId: 'ops',    label: 'War Room',        icon: '⚙️',  decoration: 'board' },
-  { agentId: 'scout',  label: 'Research Lab',    icon: '🔍',  decoration: 'bookshelf' },
-  { agentId: 'dev',    label: 'Engineering Bay', icon: '💻',  decoration: 'monitor-wall' },
-  { agentId: 'aria',   label: 'Reception',       icon: '👩‍💼', decoration: 'plant-wall' },
-  { agentId: 'atlas',  label: 'Data Room',       icon: '📊',  decoration: 'whiteboard' },
-  { agentId: 'scribe', label: 'Creative Studio', icon: '✍️',  decoration: 'corkboard' },
-];
-
-// ─── Zone decoration ──────────────────────────────────────────────────────────
-function ZoneDecoration({ type, color }: { type: ZoneDef['decoration']; color: string }) {
-  switch (type) {
-    case 'whiteboard':
-      return (
-        <div className="absolute top-8 right-4 rounded-sm flex flex-col gap-1 p-1.5" style={{
-          width: 52, height: 38,
-          backgroundColor: '#F0EEE8',
-          border: '2px solid #888',
-          boxShadow: '2px 2px 6px rgba(0,0,0,0.3)',
-        }}>
-          {[0,1,2].map(i => (
-            <div key={i} style={{
-              height: 3, backgroundColor: color,
-              opacity: 0.6, borderRadius: 1,
-              width: `${60 + i * 15}%`,
-            }} />
-          ))}
-        </div>
-      );
-    case 'bookshelf':
-      return (
-        <div className="absolute top-6 right-3 flex gap-0.5" style={{ height: 44 }}>
-          {['#B91C1C','#1D4ED8','#166534','#D97706','#7C3AED'].map((c, i) => (
-            <div key={i} className="rounded-sm" style={{
-              width: 8, height: 28 + (i % 3) * 8,
-              alignSelf: 'flex-end',
-              backgroundColor: c,
-              opacity: 0.85,
-              boxShadow: '1px 1px 3px rgba(0,0,0,0.4)',
-            }} />
-          ))}
-        </div>
-      );
-    case 'plant-wall':
-      return (
-        <div className="absolute top-4 right-4 flex gap-1">
-          {[20, 26, 18].map((h, i) => (
-            <div key={i} className="flex flex-col items-center">
-              <div className="rounded-full" style={{
-                width: h, height: h,
-                backgroundColor: i === 1 ? '#15803D' : '#166534',
-                opacity: 0.9,
-              }} />
-              <div style={{ width: 5, height: 8, backgroundColor: '#8B4513', borderRadius: 2 }} />
-            </div>
-          ))}
-        </div>
-      );
-    case 'monitor-wall':
-      return (
-        <div className="absolute top-5 right-4 flex gap-1.5">
-          {[color, '#6B7280'].map((c, i) => (
-            <div key={i} className="rounded" style={{
-              width: 28, height: 20,
-              backgroundColor: '#111118',
-              border: '1.5px solid #2A2A38',
-              overflow: 'hidden',
-              boxShadow: `0 0 8px ${c}44`,
-            }}>
-              <div className="m-0.5 rounded-sm" style={{
-                height: '100%',
-                backgroundColor: '#08080F',
-              }}>
-                <div className="mt-1 mx-1 rounded-sm" style={{ height: 2, backgroundColor: c, opacity: 0.6 }} />
-                <div className="mt-1 mx-1 rounded-sm" style={{ height: 2, backgroundColor: c, opacity: 0.4, width: '60%' }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      );
-    case 'board':
-      return (
-        <div className="absolute top-6 right-3 rounded p-1.5" style={{
-          width: 50, height: 40,
-          backgroundColor: '#1A2F1A',
-          border: '2px solid #374151',
-          boxShadow: '2px 2px 6px rgba(0,0,0,0.4)',
-        }}>
-          {[[color, 0],[color+'99', 1],['#F59E0B88', 2]].map(([c,i]) => (
-            <div key={String(i)} style={{
-              height: 2.5,
-              backgroundColor: String(c),
-              borderRadius: 1,
-              marginBottom: 4,
-              width: `${50 + Number(i) * 15}%`,
-            }} />
-          ))}
-        </div>
-      );
-    case 'corkboard':
-      return (
-        <div className="absolute top-5 right-3 rounded p-1" style={{
-          width: 50, height: 40,
-          backgroundColor: '#C8A46E',
-          border: '3px solid #7C5C30',
-          boxShadow: '2px 2px 6px rgba(0,0,0,0.4)',
-        }}>
-          {[
-            { top: 2, left: 2, w: 16, h: 12, bg: '#FDE68A' },
-            { top: 6, left: 22, w: 14, h: 10, bg: '#BFDBFE' },
-            { top: 18, left: 4, w: 12, h: 14, bg: '#D1FAE5' },
-            { top: 16, left: 22, w: 18, h: 16, bg: '#FCE7F3' },
-          ].map((s, i) => (
-            <div key={i} className="absolute" style={{
-              top: s.top, left: s.left, width: s.w, height: s.h,
-              backgroundColor: s.bg,
-              borderRadius: 1,
-              transform: `rotate(${(i % 2 === 0 ? 1 : -1) * (2 + i)}deg)`,
-              boxShadow: '1px 1px 2px rgba(0,0,0,0.15)',
-            }} />
-          ))}
-        </div>
-      );
-  }
-}
-
-// ─── Individual zone ──────────────────────────────────────────────────────────
-function Officezone({ zone, agent, isActive, onClick, agentState }: {
-  zone: ZoneDef;
+// ─── Workstation ─────────────────────────────────────────────────────────────
+function Workstation({
+  agent,
+  isActive,
+  state,
+  onClick,
+}: {
   agent: Agent;
   isActive: boolean;
+  state: AgentState;
   onClick: () => void;
-  agentState: 'idle' | 'thinking' | 'talking';
 }) {
+  // position.x: 0-100 (horizontal), position.z: 0-100 (depth, 100=front-closest)
+  const { x, z } = agent.position;
+
+  // Depth-driven scale + screen y placement → fake real 3D perspective.
+  const depth = z / 100; // 0 = far back, 1 = front
+  const scale = 0.62 + depth * 0.46;
+  const bottomPercent = 4 + depth * 36;
+  const zIndex = Math.round(z * 10);
+
   return (
-    <div
-      className="relative flex-1 rounded-xl overflow-hidden flex flex-col"
+    <motion.div
+      className="absolute"
       style={{
-        border: isActive
-          ? `2px solid ${agent.color}88`
-          : `1px solid rgba(255,255,255,0.06)`,
-        background: `radial-gradient(ellipse at 50% 30%, ${agent.color}0A 0%, transparent 70%), rgba(255,255,255,0.02)`,
-        minHeight: 0,
+        left: `${x}%`,
+        bottom: `${bottomPercent}%`,
+        transform: `translateX(-50%) scale(${scale})`,
+        transformOrigin: '50% 100%',
+        zIndex,
       }}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: (1 - depth) * 0.15 }}
     >
-      {/* Floor tile pattern */}
-      <div className="absolute inset-0 opacity-[0.03]" style={{
-        backgroundImage: `linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px),
-                          linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)`,
-        backgroundSize: '24px 24px',
-      }} />
-
-      {/* Zone label */}
-      <div className="absolute top-2 left-3 flex items-center gap-1.5 z-10">
-        <span style={{ fontSize: 11 }}>{zone.icon}</span>
-        <span className="font-medium" style={{
-          fontSize: 9,
-          color: agent.color,
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-        }}>
-          {zone.label}
-        </span>
-      </div>
-
-      {/* Zone decoration */}
-      <ZoneDecoration type={zone.decoration} color={agent.color} />
-
-      {/* Character + desk — centered, desk below character */}
-      <div className="flex-1 flex flex-col items-center justify-center gap-0 relative z-10">
-        {/* Status dot */}
-        <motion.div
-          className="absolute top-2 right-3 w-2 h-2 rounded-full"
-          style={{ backgroundColor: isActive ? agent.color : '#374151' }}
-          animate={isActive ? { scale: [1, 1.4, 1], opacity: [0.8, 1, 0.8] } : {}}
-          transition={{ repeat: Infinity, duration: 2 }}
+      {/* Workstation container — vertical stack: zone sign, character, desk */}
+      <div className="relative flex flex-col items-center" style={{ width: 280 }}>
+        {/* Floor pad / rug under the workstation — gives grounding */}
+        <div
+          className="absolute pointer-events-none"
+          style={{
+            bottom: -22,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: 280,
+            height: 96,
+            borderRadius: '50%',
+            background: `radial-gradient(ellipse at 50% 50%, ${agent.color}26 0%, ${agent.color}10 35%, transparent 70%)`,
+            filter: 'blur(2px)',
+          }}
         />
 
-        {/* Character */}
-        <div style={{ marginBottom: -18, zIndex: 2 }}>
-          <HumanCharacter
-            agent={agent}
-            agentState={agentState}
-            isActive={isActive}
-            onClick={onClick}
+        {/* Zone sign hanging above */}
+        <motion.div
+          className="absolute z-30 flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+          style={{
+            top: -6,
+            backgroundColor: 'rgba(15,17,28,0.85)',
+            border: `1px solid ${agent.color}66`,
+            backdropFilter: 'blur(8px)',
+            boxShadow: `0 4px 14px rgba(0,0,0,0.5), 0 0 12px ${agent.color}33`,
+          }}
+          animate={{ y: [0, -2, 0] }}
+          transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
+        >
+          <span
+            className="w-1.5 h-1.5 rounded-full"
+            style={{
+              background: '#10B981',
+              boxShadow: '0 0 6px rgba(16,185,129,0.8)',
+            }}
+          />
+          <span
+            className="font-semibold uppercase tracking-wider"
+            style={{ color: agent.color, fontSize: 9, letterSpacing: '0.1em' }}
+          >
+            {agent.zone}
+          </span>
+        </motion.div>
+
+        {/* Chair back, visible behind character */}
+        <div
+          className="absolute"
+          style={{
+            top: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: 116,
+            height: 130,
+            background: `linear-gradient(180deg, ${agent.color}AA 0%, ${agent.color}66 100%)`,
+            borderRadius: '18px 18px 6px 6px',
+            border: `1.5px solid ${agent.color}DD`,
+            boxShadow: `inset 0 2px 0 rgba(255,255,255,0.18), 0 8px 18px rgba(0,0,0,0.45), 0 0 24px ${agent.color}33`,
+            zIndex: 0,
+          }}
+        >
+          {/* Chair stitching */}
+          <div
+            className="absolute"
+            style={{
+              top: 6,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '70%',
+              height: 100,
+              borderLeft: '1px dashed rgba(255,255,255,0.18)',
+              borderRight: '1px dashed rgba(255,255,255,0.18)',
+            }}
           />
         </div>
 
-        {/* Desk */}
-        <div style={{ zIndex: 1 }}>
-          <AgentDesk color={agent.color} agentId={agent.id} />
+        {/* Character — portrait peeking above desk */}
+        <div className="relative z-10" style={{ marginTop: 30 }}>
+          <HumanCharacter
+            agent={agent}
+            agentState={state}
+            isActive={isActive}
+            onClick={onClick}
+            size={108}
+          />
         </div>
+
+        {/* Desk — sits in front of character, hides their lower body */}
+        <div className="relative z-20" style={{ marginTop: -16 }}>
+          <AgentDesk color={agent.color} agentId={agent.id} width={240} />
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── Office Scene ─────────────────────────────────────────────────────────────
+function OfficeScene({
+  activeAgentId,
+  setActiveAgent,
+}: {
+  activeAgentId: string | null;
+  setActiveAgent: (id: string | null) => void;
+}) {
+  const { getConversation } = useOfficeStore();
+
+  return (
+    <div
+      className="relative flex-1 overflow-hidden"
+      style={{
+        background: 'linear-gradient(180deg, #0A0D1A 0%, #0E1224 30%, #060810 100%)',
+      }}
+    >
+      {/* ── Back wall with city window ─────────────────────────────────── */}
+      <div className="absolute inset-x-0 top-0" style={{ height: '55%' }}>
+        {/* Wall gradient */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              'linear-gradient(180deg, #131628 0%, #181C30 60%, #0F1220 100%)',
+            boxShadow: 'inset 0 -40px 80px rgba(0,0,0,0.55)',
+          }}
+        />
+
+        {/* Subtle wall panel lines */}
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage:
+              'repeating-linear-gradient(90deg, transparent 0 200px, rgba(255,255,255,0.025) 200px 201px)',
+          }}
+        />
+
+        {/* Window (city view at night) */}
+        <div
+          className="absolute"
+          style={{
+            top: '15%',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: '52%',
+            height: '60%',
+            background:
+              'linear-gradient(180deg, #0E1530 0%, #1A2440 50%, #0B0F22 100%)',
+            border: '3px solid #1C2138',
+            borderRadius: 6,
+            boxShadow:
+              'inset 0 0 30px rgba(120,150,255,0.18), 0 0 40px rgba(80,100,200,0.12)',
+            overflow: 'hidden',
+          }}
+        >
+          {/* Window cross-frame */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage:
+                'linear-gradient(transparent calc(50% - 1px), #1C2138 calc(50% - 1px), #1C2138 calc(50% + 1px), transparent calc(50% + 1px)), linear-gradient(90deg, transparent calc(33% - 1px), #1C2138 calc(33% - 1px), #1C2138 calc(33% + 1px), transparent calc(33% + 1px)), linear-gradient(90deg, transparent calc(66% - 1px), #1C2138 calc(66% - 1px), #1C2138 calc(66% + 1px), transparent calc(66% + 1px))',
+            }}
+          />
+          {/* City silhouette */}
+          <svg
+            viewBox="0 0 400 200"
+            preserveAspectRatio="none"
+            className="absolute bottom-0 left-0 w-full h-2/3"
+          >
+            <path
+              d="M0 200 V120 L20 120 L20 100 L50 100 L50 80 L70 80 L70 110 L90 110 L90 70 L110 70 L110 95 L130 95 L130 60 L155 60 L155 100 L175 100 L175 50 L195 50 L195 85 L215 85 L215 95 L240 95 L240 65 L260 65 L260 90 L285 90 L285 75 L310 75 L310 105 L335 105 L335 85 L360 85 L360 120 L400 120 V200 Z"
+              fill="#0C0F22"
+              opacity="0.95"
+            />
+            {/* Random window lights */}
+            {Array.from({ length: 60 }).map((_, i) => {
+              const x = (i * 37) % 400;
+              const y = 60 + ((i * 17) % 110);
+              const opacity = 0.3 + ((i * 7) % 7) / 12;
+              const hue = i % 7 === 0 ? '#FBBF24' : i % 5 === 0 ? '#A78BFA' : '#FCD34D';
+              return (
+                <rect
+                  key={i}
+                  x={x}
+                  y={y}
+                  width={2}
+                  height={2}
+                  fill={hue}
+                  opacity={opacity}
+                />
+              );
+            })}
+          </svg>
+          {/* Moon */}
+          <div
+            className="absolute"
+            style={{
+              top: '14%',
+              right: '14%',
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background:
+                'radial-gradient(circle at 35% 35%, #F4EFD8 0%, #D4CCAB 60%, #B0A687 100%)',
+              boxShadow:
+                '0 0 24px rgba(244,239,216,0.45), 0 0 50px rgba(244,239,216,0.2)',
+            }}
+          />
+        </div>
+
+        {/* Framework logo on wall */}
+        <div
+          className="absolute flex items-center gap-2 px-3 py-1.5 rounded-md"
+          style={{
+            top: '6%',
+            left: '6%',
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.08)',
+          }}
+        >
+          <div
+            className="w-4 h-4 rounded"
+            style={{ background: 'linear-gradient(135deg, #7C3AED, #4F46E5)' }}
+          />
+          <span
+            className="font-semibold text-white"
+            style={{ fontSize: 11, letterSpacing: '0.06em' }}
+          >
+            FRAMEWORK HQ
+          </span>
+        </div>
+
+        {/* Wall art (right side) */}
+        <div
+          className="absolute"
+          style={{
+            top: '20%',
+            right: '6%',
+            width: 90,
+            height: 60,
+            background: 'linear-gradient(135deg, #7C3AED, #DC2626, #D97706)',
+            border: '4px solid #1A1D2A',
+            borderRadius: 3,
+            boxShadow: '0 8px 18px rgba(0,0,0,0.5)',
+          }}
+        />
+
+        {/* Wall art (left side) */}
+        <div
+          className="absolute"
+          style={{
+            top: '24%',
+            left: '6%',
+            width: 70,
+            height: 90,
+            background:
+              'linear-gradient(180deg, #0891B2 0%, #059669 50%, #4F46E5 100%)',
+            border: '4px solid #1A1D2A',
+            borderRadius: 3,
+            boxShadow: '0 8px 18px rgba(0,0,0,0.5)',
+          }}
+        />
+
+        {/* Ceiling light strips */}
+        {[20, 50, 80].map((leftPct) => (
+          <div
+            key={leftPct}
+            className="absolute"
+            style={{
+              top: 8,
+              left: `${leftPct}%`,
+              transform: 'translateX(-50%)',
+              width: 70,
+              height: 3,
+              background:
+                'linear-gradient(90deg, rgba(255,255,255,0.05), rgba(180,200,255,0.4), rgba(255,255,255,0.05))',
+              borderRadius: 4,
+              boxShadow:
+                '0 0 20px rgba(180,200,255,0.45), 0 4px 18px rgba(180,200,255,0.25)',
+            }}
+          />
+        ))}
+      </div>
+
+      {/* ── Floor with perspective grid ────────────────────────────────── */}
+      <div
+        className="absolute inset-x-0 bottom-0"
+        style={{
+          height: '55%',
+          background:
+            'linear-gradient(180deg, #161927 0%, #0E1120 60%, #060810 100%)',
+          boxShadow: 'inset 0 30px 60px rgba(0,0,0,0.55)',
+        }}
+      >
+        {/* Floor / wall seam */}
+        <div
+          className="absolute top-0 left-0 right-0 h-px"
+          style={{
+            background:
+              'linear-gradient(90deg, transparent, rgba(140,160,220,0.35), transparent)',
+            boxShadow: '0 1px 8px rgba(140,160,220,0.25)',
+          }}
+        />
+
+        {/* Perspective grid */}
+        <svg
+          viewBox="0 0 1000 500"
+          preserveAspectRatio="none"
+          className="absolute inset-0 w-full h-full opacity-30"
+        >
+          {/* Horizontal lines getting closer together as they recede */}
+          {[0, 60, 130, 215, 320, 440].map((y, i) => (
+            <line
+              key={`h-${i}`}
+              x1="0"
+              y1={y}
+              x2="1000"
+              y2={y}
+              stroke="rgba(120,140,200,0.45)"
+              strokeWidth={0.5 + i * 0.3}
+            />
+          ))}
+          {/* Vanishing-point vertical lines */}
+          {Array.from({ length: 17 }).map((_, i) => {
+            const x = (i - 8) * 125 + 500;
+            return (
+              <line
+                key={`v-${i}`}
+                x1={500}
+                y1={0}
+                x2={x}
+                y2={500}
+                stroke="rgba(120,140,200,0.18)"
+                strokeWidth={0.6}
+              />
+            );
+          })}
+        </svg>
+
+        {/* Floor reflection sheen */}
+        <div
+          className="absolute"
+          style={{
+            top: 0,
+            left: '15%',
+            right: '15%',
+            height: '40%',
+            background:
+              'radial-gradient(ellipse at 50% 0%, rgba(160,180,240,0.06), transparent 70%)',
+          }}
+        />
+      </div>
+
+      {/* ── Ambient lighting ──────────────────────────────────────────── */}
+      {AGENTS.map((a) => {
+        const left = a.position.x;
+        const bottom = 6 + (a.position.z / 100) * 28;
+        return (
+          <div
+            key={`light-${a.id}`}
+            className="absolute pointer-events-none"
+            style={{
+              left: `${left}%`,
+              bottom: `${bottom}%`,
+              transform: 'translateX(-50%)',
+              width: 280,
+              height: 280,
+              background: `radial-gradient(circle, ${a.color}1A 0%, transparent 65%)`,
+              filter: 'blur(2px)',
+              zIndex: 1,
+            }}
+          />
+        );
+      })}
+
+      {/* ── Workstations ───────────────────────────────────────────────── */}
+      {AGENTS.map((agent) => {
+        const conv = getConversation(agent.id);
+        return (
+          <Workstation
+            key={agent.id}
+            agent={agent}
+            isActive={activeAgentId === agent.id}
+            state={conv.state}
+            onClick={() =>
+              setActiveAgent(activeAgentId === agent.id ? null : agent.id)
+            }
+          />
+        );
+      })}
+
+      {/* ── Dust / particles ───────────────────────────────────────────── */}
+      <div className="absolute inset-0 pointer-events-none">
+        {Array.from({ length: 18 }).map((_, i) => {
+          const left = (i * 53) % 100;
+          const top = (i * 31 + 10) % 70;
+          const delay = (i * 0.5) % 6;
+          const size = 1 + (i % 3);
+          return (
+            <motion.div
+              key={i}
+              className="absolute rounded-full"
+              style={{
+                left: `${left}%`,
+                top: `${top}%`,
+                width: size,
+                height: size,
+                background: 'rgba(255,255,255,0.35)',
+                boxShadow: '0 0 4px rgba(255,255,255,0.3)',
+              }}
+              animate={{
+                y: [0, -30, 0],
+                opacity: [0.15, 0.55, 0.15],
+              }}
+              transition={{
+                repeat: Infinity,
+                duration: 8 + (i % 4),
+                delay,
+                ease: 'easeInOut',
+              }}
+            />
+          );
+        })}
       </div>
     </div>
   );
 }
 
-// ─── Main office floor ────────────────────────────────────────────────────────
-export default function OfficeFloor() {
-  const { activeAgentId, setActiveAgent, getConversation } = useOfficeStore();
-  const activeAgent = activeAgentId ? getAgent(activeAgentId) : null;
+// ─── Header ──────────────────────────────────────────────────────────────────
+function Header({
+  activeAgentId,
+  setActiveAgent,
+}: {
+  activeAgentId: string | null;
+  setActiveAgent: (id: string | null) => void;
+}) {
+  const { getConversation } = useOfficeStore();
+  const activeCount = AGENTS.filter(
+    (a) => getConversation(a.id).state !== 'idle',
+  ).length;
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden" style={{ backgroundColor: '#070810' }}>
-
-      {/* ── Office canvas ── */}
-      <div className="relative flex-1 flex flex-col overflow-hidden">
-
-        {/* Ambient ceiling lights */}
-        {AGENTS.map((a, i) => (
-          <div key={a.id} className="absolute pointer-events-none" style={{
-            top: -40,
-            left: `${(i % 3) * 33 + 16}%`,
-            width: 120,
-            height: 120,
-            background: `radial-gradient(circle, ${a.color}18, transparent 70%)`,
-            borderRadius: '50%',
-          }} />
-        ))}
-
-        {/* Header */}
-        <div className="relative z-20 flex items-center justify-between px-5 py-2.5 border-b"
-          style={{ borderColor: 'rgba(255,255,255,0.06)', backgroundColor: 'rgba(7,8,16,0.8)', backdropFilter: 'blur(12px)' }}>
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-base"
-              style={{ background: 'linear-gradient(135deg, #7C3AED, #4F46E5)' }}>
-              🏢
-            </div>
-            <div>
-              <h1 className="text-white font-semibold text-sm tracking-tight">Framework HQ</h1>
-              <p className="text-gray-500" style={{ fontSize: 10 }}>
-                {AGENTS.filter(a => getConversation(a.id).state !== 'idle').length > 0
-                  ? `${AGENTS.filter(a => getConversation(a.id).state !== 'idle').length} agents active`
-                  : 'All agents available'}
-              </p>
-            </div>
-          </div>
-
-          {/* Agent quick-select pills */}
-          <div className="flex gap-1.5">
-            {AGENTS.map(a => {
-              const conv = getConversation(a.id);
-              return (
-                <motion.button
-                  key={a.id}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all"
-                  style={{
-                    backgroundColor: activeAgentId === a.id ? a.color : `${a.color}22`,
-                    color: activeAgentId === a.id ? 'white' : a.color,
-                    border: `1px solid ${a.color}44`,
-                    fontSize: 10,
-                  }}
-                  whileHover={{ scale: 1.04 }}
-                  whileTap={{ scale: 0.96 }}
-                  onClick={() => setActiveAgent(activeAgentId === a.id ? null : a.id)}
-                >
-                  <span>{a.emoji}</span>
-                  <span>{a.name}</span>
-                  {conv.state !== 'idle' && (
-                    <motion.span
-                      className="w-1.5 h-1.5 rounded-full bg-current"
-                      animate={{ opacity: [0.5, 1, 0.5] }}
-                      transition={{ repeat: Infinity, duration: 1 }}
-                    />
-                  )}
-                </motion.button>
-              );
-            })}
-          </div>
+    <div
+      className="relative z-30 flex items-center justify-between px-5 py-2.5 border-b"
+      style={{
+        borderColor: 'rgba(255,255,255,0.06)',
+        backgroundColor: 'rgba(7,8,16,0.85)',
+        backdropFilter: 'blur(12px)',
+      }}
+    >
+      <div className="flex items-center gap-2.5">
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-base"
+          style={{
+            background: 'linear-gradient(135deg, #7C3AED, #4F46E5)',
+            boxShadow: '0 4px 12px rgba(124,58,237,0.35)',
+          }}
+        >
+          🏢
         </div>
-
-        {/* Office grid */}
-        <div className="flex-1 p-3 flex flex-col gap-2 min-h-0">
-          {/* Row 1 */}
-          <div className="flex gap-2 flex-1 min-h-0">
-            {ZONES.slice(0, 3).map(zone => {
-              const agent = getAgent(zone.agentId)!;
-              const conv = getConversation(zone.agentId);
-              return (
-                <Officezone
-                  key={zone.agentId}
-                  zone={zone}
-                  agent={agent}
-                  isActive={activeAgentId === zone.agentId}
-                  onClick={() => setActiveAgent(activeAgentId === zone.agentId ? null : zone.agentId)}
-                  agentState={conv.state}
-                />
-              );
-            })}
-          </div>
-
-          {/* Row 2 */}
-          <div className="flex gap-2 flex-1 min-h-0">
-            {ZONES.slice(3, 6).map(zone => {
-              const agent = getAgent(zone.agentId)!;
-              const conv = getConversation(zone.agentId);
-              return (
-                <Officezone
-                  key={zone.agentId}
-                  zone={zone}
-                  agent={agent}
-                  isActive={activeAgentId === zone.agentId}
-                  onClick={() => setActiveAgent(activeAgentId === zone.agentId ? null : zone.agentId)}
-                  agentState={conv.state}
-                />
-              );
-            })}
-          </div>
+        <div>
+          <h1 className="text-white font-semibold text-sm tracking-tight">
+            Framework HQ
+          </h1>
+          <p className="text-gray-500" style={{ fontSize: 10 }}>
+            {activeCount > 0
+              ? `${activeCount} agent${activeCount > 1 ? 's' : ''} active`
+              : 'All agents available'}
+          </p>
         </div>
       </div>
 
-      {/* ── Chat panel ── */}
+      <div className="flex gap-1.5">
+        {AGENTS.map((a) => {
+          const conv = getConversation(a.id);
+          const isOpen = activeAgentId === a.id;
+          return (
+            <motion.button
+              key={a.id}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium transition-all"
+              style={{
+                backgroundColor: isOpen ? a.color : `${a.color}22`,
+                color: isOpen ? 'white' : a.color,
+                border: `1px solid ${a.color}55`,
+                fontSize: 10,
+              }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => setActiveAgent(isOpen ? null : a.id)}
+            >
+              <span>{a.emoji}</span>
+              <span>{a.name}</span>
+              {conv.state !== 'idle' && (
+                <motion.span
+                  className="w-1.5 h-1.5 rounded-full bg-current"
+                  animate={{ opacity: [0.4, 1, 0.4] }}
+                  transition={{ repeat: Infinity, duration: 1 }}
+                />
+              )}
+            </motion.button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+export default function OfficeFloor() {
+  const { activeAgentId, setActiveAgent } = useOfficeStore();
+  const activeAgent = activeAgentId ? getAgent(activeAgentId) : null;
+
+  return (
+    <div
+      className="flex h-screen w-screen overflow-hidden"
+      style={{ background: '#06070D' }}
+    >
+      <div className="relative flex-1 flex flex-col overflow-hidden">
+        <Header
+          activeAgentId={activeAgentId}
+          setActiveAgent={setActiveAgent}
+        />
+        <OfficeScene
+          activeAgentId={activeAgentId}
+          setActiveAgent={setActiveAgent}
+        />
+      </div>
+
       <AnimatePresence>
         {activeAgent && (
           <motion.div
             key={activeAgent.id}
             className="flex flex-col border-l"
             style={{
-              width: 340,
+              width: 360,
               backgroundColor: '#0C0D1A',
               borderColor: 'rgba(255,255,255,0.08)',
             }}
-            initial={{ x: 340, opacity: 0 }}
+            initial={{ x: 360, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 340, opacity: 0 }}
+            exit={{ x: 360, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 320, damping: 32 }}
           >
-            <AgentChat agent={activeAgent} onClose={() => setActiveAgent(null)} />
+            <AgentChat
+              agent={activeAgent}
+              onClose={() => setActiveAgent(null)}
+            />
           </motion.div>
         )}
       </AnimatePresence>
